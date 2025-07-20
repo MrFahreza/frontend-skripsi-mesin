@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Suhu & Kelembapan</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            background: #fff;
+            padding: 20px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .chart-container {
+            margin-top: 30px;
+        }
+        .export-button {
+            display: inline-block;
+            background-color: #27ae60;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        .export-button:hover {
+            background-color: #2ecc71;
+        }
+        /* Style untuk Kontrol Filter */
+        .filter-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin: 25px 0;
+            flex-wrap: wrap;
+            padding: 15px;
+            background-color: #ecf0f1;
+            border-radius: 8px;
+        }
+        .filter-controls div {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .filter-controls label {
+            margin-bottom: 5px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .filter-controls select, .filter-controls button {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+        .filter-controls button {
+            cursor: pointer;
+            color: white;
+            border: none;
+            align-self: flex-end; /* Sejajarkan dengan bagian bawah select */
+        }
+        #filterBtn {
+            background-color: #3498db;
+        }
+        #resetBtn {
+            background-color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>📈 Monitoring Real-Time Inkubator</h1>
+        <p>Gunakan filter di bawah untuk melihat data pada rentang waktu tertentu.</p>
+
+        <div class="filter-controls">
+            <div>
+                <label for="monthFilter">Filter per Bulan:</label>
+                <select id="monthFilter">
+                    <option value="">-- Semua Bulan --</option>
+                </select>
+            </div>
+            <div>
+                <label for="dayFilter">Filter per Hari:</label>
+                <select id="dayFilter">
+                    <option value="">-- Semua Hari --</option>
+                </select>
+            </div>
+            <button id="filterBtn">Terapkan</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+        <a href="http://localhost:5100/export_excel" class="export-button" target="_blank">📊 Export Semua Data ke Excel</a>
+
+        <div class="chart-container">
+            <canvas id="temperatureChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="humidityChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const apiUrl = 'http://localhost:5100/get_data';
+
+        let allData = [];
+        let tempChartInstance = null;
+        let humidityChartInstance = null;
+
+        const monthFilter = document.getElementById('monthFilter');
+        const dayFilter = document.getElementById('dayFilter');
+        const filterBtn = document.getElementById('filterBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        async function initializeDashboard() {
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error(`Gagal mengambil data`);
+                allData = await response.json();
+                
+                populateFilterOptions(allData);
+                renderChartsWithData(allData); 
+            } catch (error) {
+                console.error("Terjadi kesalahan:", error);
+                document.querySelector('.container').innerHTML += `<p style="color:red;">Tidak bisa terhubung ke backend.</p>`;
+            }
+        }
+
+        function populateFilterOptions(data) {
+            const uniqueMonths = [...new Set(data.map(item => item.tanggal.substring(0, 7)))];
+            const uniqueDays = [...new Set(data.map(item => item.tanggal))];
+
+            monthFilter.innerHTML = '<option value="">-- Pilih Bulan --</option>';
+            uniqueMonths.sort().reverse().forEach(month => {
+                const option = document.createElement('option');
+                option.value = month;
+                option.textContent = month;
+                monthFilter.appendChild(option);
+            });
+
+            dayFilter.innerHTML = '<option value="">-- Pilih Hari --</option>';
+            uniqueDays.sort().reverse().forEach(day => {
+                const option = document.createElement('option');
+                option.value = day;
+                option.textContent = day;
+                dayFilter.appendChild(option);
+            });
+        }
+
+        function renderChartsWithData(data) {
+            const reversedData = [...data].reverse();
+            const labels = reversedData.map(item => item.jam);
+            const temperatureData = reversedData.map(item => parseFloat(item.temperature));
+            const humidityData = reversedData.map(item => parseFloat(item.humidity));
+            
+            renderTemperatureChart(labels, temperatureData);
+            renderHumidityChart(labels, humidityData);
+        }
+
+        function renderTemperatureChart(labels, tempData) {
+            const ctx = document.getElementById('temperatureChart').getContext('2d');
+            if (tempChartInstance) tempChartInstance.destroy();
+            tempChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Suhu',
+                        data: tempData,
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderWidth: 2, fill: true, tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { title: { display: true, text: 'Grafik Suhu (°C)', font: { size: 18 } } },
+                    scales: {
+                        y: { beginAtZero: false, title: { display: true, text: 'Celcius (°C)' } },
+                        x: { title: { display: true, text: 'Waktu' } }
+                    }
+                }
+            });
+        }
+
+        function renderHumidityChart(labels, humidityData) {
+            const ctx = document.getElementById('humidityChart').getContext('2d');
+            if (humidityChartInstance) humidityChartInstance.destroy();
+            humidityChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Kelembapan',
+                        data: humidityData,
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderWidth: 2, fill: true, tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { title: { display: true, text: 'Grafik Kelembapan (%)', font: { size: 18 } } },
+                    scales: {
+                        y: { beginAtZero: false, title: { display: true, text: 'Persentase (%)' } },
+                        x: { title: { display: true, text: 'Waktu' } }
+                    }
+                }
+            });
+        }
+
+        // Event Listener untuk tombol filter
+        filterBtn.addEventListener('click', () => {
+            const selectedMonth = monthFilter.value;
+            const selectedDay = dayFilter.value;
+            let filteredData = allData;
+
+            // Prioritaskan filter per hari jika dipilih
+            if (selectedDay) {
+                filteredData = allData.filter(item => item.tanggal === selectedDay);
+                // Saat filter harian aktif, reset pilihan bulan agar tidak membingungkan
+                monthFilter.value = ""; 
+            } else if (selectedMonth) {
+                filteredData = allData.filter(item => item.tanggal.startsWith(selectedMonth));
+            }
+
+            renderChartsWithData(filteredData);
+        });
+
+        // Event listener untuk tombol reset
+        resetBtn.addEventListener('click', () => {
+            monthFilter.value = "";
+            dayFilter.value = "";
+            renderChartsWithData(allData);
+        });
+
+        // Panggil fungsi utama saat halaman dimuat
+        initializeDashboard();
+
+    </script>
+</body>
+</html>
