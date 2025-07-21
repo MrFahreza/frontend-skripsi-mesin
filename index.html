@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monitoring Suhu & Kelembapan</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -14,6 +16,7 @@
             margin: 0;
             padding: 20px;
         }
+
         .container {
             width: 100%;
             background: #fff;
@@ -21,12 +24,15 @@
             box-sizing: border-box;
             text-align: center;
         }
+
         h1 {
             color: #2c3e50;
         }
+
         .chart-container {
             margin-top: 30px;
         }
+
         .export-button {
             display: inline-block;
             background-color: #27ae60;
@@ -38,10 +44,11 @@
             margin-top: 20px;
             transition: background-color 0.3s;
         }
+
         .export-button:hover {
             background-color: #2ecc71;
         }
-        /* Style untuk Kontrol Filter */
+
         .filter-controls {
             display: flex;
             justify-content: center;
@@ -53,41 +60,58 @@
             background-color: #ecf0f1;
             border-radius: 8px;
         }
+
         .filter-controls div {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
         }
+
         .filter-controls label {
             margin-bottom: 5px;
             font-size: 14px;
             font-weight: bold;
         }
-        .filter-controls select, .filter-controls button {
+
+        .filter-controls select,
+        .filter-controls button {
             padding: 8px;
             border-radius: 5px;
             border: 1px solid #ccc;
             font-size: 14px;
         }
+
         .filter-controls button {
             cursor: pointer;
             color: white;
             border: none;
-            align-self: flex-end; /* Sejajarkan dengan bagian bawah select */
+            align-self: flex-end;
         }
+
         #filterBtn {
             background-color: #3498db;
         }
+
         #resetBtn {
             background-color: #e74c3c;
         }
+
+        /* --- CSS BARU UNTUK SLIDER --- */
+        .slider-container {
+            padding: 10px 0;
+        }
+
+        .chart-slider {
+            width: 80%;
+            cursor: pointer;
+        }
     </style>
 </head>
-<body>
 
+<body>
     <div class="container">
         <h1>📈 Monitoring Real-Time Inkubator</h1>
-        <p>Gunakan filter di bawah untuk melihat data pada rentang waktu tertentu.</p>
+        <p>Gunakan filter atau slider di bawah untuk menavigasi data grafik.</p>
 
         <div class="filter-controls">
             <div>
@@ -105,18 +129,27 @@
             <button id="filterBtn">Terapkan</button>
             <button id="resetBtn">Reset</button>
         </div>
-        <a href="https://3tlgn801-5100.asse.devtunnels.ms/export_excel" class="export-button" target="_blank">📊 Export Semua Data ke Excel</a>
+
+        <a href="https://3tlgn801-5100.asse.devtunnels.ms/export_excel" class="export-button" target="_blank">📊 Export
+            Semua Data ke Excel</a>
 
         <div class="chart-container">
             <canvas id="temperatureChart"></canvas>
+            <div class="slider-container">
+                <input type="range" min="0" max="100" class="chart-slider" id="tempSlider" style="display: none;">
+            </div>
         </div>
         <div class="chart-container">
             <canvas id="humidityChart"></canvas>
+            <div class="slider-container">
+                <input type="range" min="0" max="100" class="chart-slider" id="humiditySlider" style="display: none;">
+            </div>
         </div>
     </div>
 
     <script>
         const apiUrl = 'https://3tlgn801-5100.asse.devtunnels.ms/get_data';
+        const initialDataToShow = 30;
 
         let allData = [];
         let tempChartInstance = null;
@@ -132,9 +165,8 @@
                 const response = await fetch(apiUrl);
                 if (!response.ok) throw new Error(`Gagal mengambil data`);
                 allData = await response.json();
-                
                 populateFilterOptions(allData);
-                renderChartsWithData(allData); 
+                renderChartsWithData(allData);
             } catch (error) {
                 console.error("Terjadi kesalahan:", error);
                 document.querySelector('.container').innerHTML += `<p style="color:red;">Tidak bisa terhubung ke backend.</p>`;
@@ -142,9 +174,9 @@
         }
 
         function populateFilterOptions(data) {
+            // ... (Fungsi ini tidak berubah) ...
             const uniqueMonths = [...new Set(data.map(item => item.tanggal.substring(0, 7)))];
             const uniqueDays = [...new Set(data.map(item => item.tanggal))];
-
             monthFilter.innerHTML = '<option value="">-- Pilih Bulan --</option>';
             uniqueMonths.sort().reverse().forEach(month => {
                 const option = document.createElement('option');
@@ -152,7 +184,6 @@
                 option.textContent = month;
                 monthFilter.appendChild(option);
             });
-
             dayFilter.innerHTML = '<option value="">-- Pilih Hari --</option>';
             uniqueDays.sort().reverse().forEach(day => {
                 const option = document.createElement('option');
@@ -167,14 +198,44 @@
             const labels = reversedData.map(item => item.jam);
             const temperatureData = reversedData.map(item => parseFloat(item.temperature));
             const humidityData = reversedData.map(item => parseFloat(item.humidity));
-            
+
             renderTemperatureChart(labels, temperatureData);
             renderHumidityChart(labels, humidityData);
+        }
+
+        // --- FUNGSI BARU UNTUK MENGATUR SLIDER ---
+        function setupSlider(sliderId, chartInstance, totalDataPoints) {
+            const slider = document.getElementById(sliderId);
+
+            // Sembunyikan slider jika data tidak cukup untuk digeser
+            if (totalDataPoints <= initialDataToShow) {
+                slider.style.display = 'none';
+                return;
+            }
+
+            slider.style.display = 'block'; // Tampilkan slider
+            const maxScroll = totalDataPoints - initialDataToShow;
+            slider.max = maxScroll;
+            slider.value = maxScroll; // Mulai dari posisi paling kanan (data terbaru)
+
+            // Atur rentang awal grafik
+            chartInstance.options.scales.x.min = maxScroll;
+            chartInstance.options.scales.x.max = totalDataPoints - 1;
+
+            // Tambahkan event listener ke slider
+            slider.addEventListener('input', () => {
+                const newMinValue = parseInt(slider.value);
+                chartInstance.options.scales.x.min = newMinValue;
+                chartInstance.options.scales.x.max = newMinValue + initialDataToShow - 1;
+                chartInstance.update('none'); // Update grafik tanpa animasi agar lebih responsif
+            });
+            chartInstance.update('none');
         }
 
         function renderTemperatureChart(labels, tempData) {
             const ctx = document.getElementById('temperatureChart').getContext('2d');
             if (tempChartInstance) tempChartInstance.destroy();
+
             tempChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -184,23 +245,40 @@
                         data: tempData,
                         borderColor: 'rgba(255, 99, 132, 1)',
                         backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                        borderWidth: 2, fill: true, tension: 0.3
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: { title: { display: true, text: 'Grafik Suhu (°C)', font: { size: 18 } } },
                     scales: {
-                        y: { beginAtZero: false, title: { display: true, text: 'Celcius (°C)' } },
-                        x: { title: { display: true, text: 'Waktu' } }
+                        // --- PERUBAHAN DI SINI ---
+                        y: {
+                            title: { display: true, text: 'Celcius (°C)' },
+                            min: 5,   // Nilai minimum sumbu Y
+                            max: 50,  // Nilai maksimum sumbu Y
+                            ticks: {
+                                stepSize: 5 // Kelipatan angka pada sumbu Y
+                            }
+                        },
+                        x: {
+                            title: { display: true, text: 'Waktu' }
+                        }
+                    },
+                    plugins: {
+                        title: { display: true, text: 'Grafik Suhu (°C)', font: { size: 18 } },
+                        zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } }
                     }
                 }
             });
-        }
 
+            setupSlider('tempSlider', tempChartInstance, labels.length);
+        }
         function renderHumidityChart(labels, humidityData) {
             const ctx = document.getElementById('humidityChart').getContext('2d');
             if (humidityChartInstance) humidityChartInstance.destroy();
+
             humidityChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -210,48 +288,58 @@
                         data: humidityData,
                         borderColor: 'rgba(54, 162, 235, 1)',
                         backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                        borderWidth: 2, fill: true, tension: 0.3
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: { title: { display: true, text: 'Grafik Kelembapan (%)', font: { size: 18 } } },
                     scales: {
-                        y: { beginAtZero: false, title: { display: true, text: 'Persentase (%)' } },
-                        x: { title: { display: true, text: 'Waktu' } }
+                        // --- PERUBAHAN DI SINI ---
+                        y: {
+                            title: { display: true, text: 'Persentase (%)' },
+                            min: 10,  // Nilai minimum sumbu Y
+                            max: 100, // Nilai maksimum sumbu Y
+                            ticks: {
+                                stepSize: 10 // Kelipatan angka pada sumbu Y
+                            }
+                        },
+                        x: {
+                            title: { display: true, text: 'Waktu' }
+                        }
+                    },
+                    plugins: {
+                        title: { display: true, text: 'Grafik Kelembapan (%)', font: { size: 18 } },
+                        zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } }
                     }
                 }
             });
+
+            setupSlider('humiditySlider', humidityChartInstance, labels.length);
         }
 
-        // Event Listener untuk tombol filter
         filterBtn.addEventListener('click', () => {
             const selectedMonth = monthFilter.value;
             const selectedDay = dayFilter.value;
             let filteredData = allData;
-
-            // Prioritaskan filter per hari jika dipilih
             if (selectedDay) {
                 filteredData = allData.filter(item => item.tanggal === selectedDay);
-                // Saat filter harian aktif, reset pilihan bulan agar tidak membingungkan
-                monthFilter.value = ""; 
+                monthFilter.value = "";
             } else if (selectedMonth) {
                 filteredData = allData.filter(item => item.tanggal.startsWith(selectedMonth));
             }
-
             renderChartsWithData(filteredData);
         });
 
-        // Event listener untuk tombol reset
         resetBtn.addEventListener('click', () => {
             monthFilter.value = "";
             dayFilter.value = "";
             renderChartsWithData(allData);
         });
 
-        // Panggil fungsi utama saat halaman dimuat
         initializeDashboard();
-
     </script>
 </body>
+
 </html>
